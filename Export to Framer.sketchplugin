@@ -410,13 +410,13 @@ function process_all_artboards(){
     for (var i=0; i < [all_layers length]; i++) {
       if(artboardId === artboardCount-1){
         log('Multistate: Main Artboard '+artboardId+' '+thisArtboard)
-        process_layer(all_layers[i],project_metadata, 0);
+        process_layer(all_layers[i],project_metadata, 0, true);
       }
     }
   }
 }
 function process_layer(layer,metadata_container,depth,skipExport) {
-  log("Processing layer: " + layer)
+  log("Processing layer: " + layer+' skipping: '+skipExport)
   log("Metadata Container: " + metadata_container)
   depth++
 
@@ -445,7 +445,7 @@ function process_layer(layer,metadata_container,depth,skipExport) {
       // so we'll loop backwards through them:
       for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
         var current = sublayers[sub];
-        process_layer(current,layer_data.children,depth+1);
+        process_layer(current,layer_data.children,depth+1,skipExport);
       }
     }
     if(!skipExport){
