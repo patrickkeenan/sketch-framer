@@ -336,6 +336,7 @@ function extract_metadata_from(layer) {
   // - Get style data, specfically opacity
   var layerStyle = layer.style();
   layerFrame.opacity = layerStyle.contextSettings().opacity();
+  layerFrame.rotationZ = layer.rotation();
   log('Style settings: opacity '+layerStyle.contextSettings().opacity() );
 
   var metadata = {
@@ -363,6 +364,56 @@ function extract_metadata_from(layer) {
   }
 
   return metadata;
+}
+
+function extract_style_from(shapeLayer) {
+  var styles = {}
+  var borders = shapeLayer.style().borders().array()
+
+  log('CSS Box:  '+ shapeLayer.CSSAttributeString().toString()+' ')
+  for(var borderIndex = 0; borderIndex < borders.length(); borderIndex++){
+    var border = borders[borderIndex]
+    log('CSS Box border is  '+ border)
+    styles.borderSize = border.thickness();
+    styles.borderColor = 'rgba('
+      +Math.round(border.color().red()*255)+','
+      +Math.round(border.color().green()*255)+','
+      +Math.round(border.color().blue()*255)+','
+      +border.color().alpha()+')'
+    
+    log('CSS Box border position:  '+ border.position())
+    log('CSS Box border fillType:  '+ border.fillType())
+    log('CSS Box border gradient:  '+ border.gradient())
+    log('CSS Box border isEnabled:  '+ border.isEnabled())
+    log('CSS Box border red:  '+ border.color().red())
+    log('CSS Box border blue:  '+ border.color().blue())
+    log('CSS Box border green:  '+ border.color().green())
+    log('CSS Box border alpha:  '+ border.color().alpha())
+    
+  }
+
+  var fills = shapeLayer.style().fills().array()
+  log('CSS Box has fills  '+ fills.length())
+  for(var fillIndex = 0; fillIndex < fills.length(); fillIndex++){
+    var fill = fills[fillIndex]
+    styles.backgroundColor = 'rgba('
+      +Math.round(fill.color().red()*255)+','
+      +Math.round(fill.color().green()*255)+','
+      +Math.round(fill.color().blue()*255)+','
+      +fill.color().alpha()+')'
+    log('CSS Box fill is  '+ fill)
+    log('CSS Box fill fillType:  '+ fill.fillType())
+    log('CSS Box fill red:  '+ fill.color().red())
+    log('CSS Box fill blue:  '+ fill.color().blue())
+    log('CSS Box fill green:  '+ fill.color().green())
+    log('CSS Box fill alpha:  '+ fill.color().alpha())
+    log('CSS Box fill gradient:  '+ fill.gradient())
+    log('CSS Box fill isEnabled:  '+ fill.isEnabled())
+  }
+  //return styles; 
+  return shapeLayer.CSSAttributeString().toString()
+  //+'\n-webkit-transform: rotateZ('+shapeLayer.rotation()+'deg);'
+
 }
 
 function make_folder(path){
@@ -419,7 +470,9 @@ function process_all_artboards(page){
   }
 }
 function process_layer(page, layer,metadata_container,depth,skipExport) {
-  log("Processing layer: " + layer+' skipping: '+skipExport)
+  log("Processing layer: " + layer+' skipping: '+skipExport+' type: '+layer.name())
+  
+  
   log("Metadata Container: " + metadata_container)
   depth++
 
@@ -457,7 +510,17 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
       } else {
         log('using API '+[NSApp applicationVersion])
         if (parseInt([NSApp applicationVersion]) >= 3) {
-          export_isolated_layer_v3(page, layer,images_folder + "/" + sanitize_filename([layer name]) + ".png")
+          log('look for CSS Box:'+layer)
+          var CSSBoxBackground = lookForCSSBoxBackground(layer)
+          log('look for CSS Box found:'+CSSBoxBackground)
+          if(CSSBoxBackground == false){
+            export_isolated_layer_v3(page, layer,images_folder + "/" + sanitize_filename([layer name]) + ".png")
+          }else{
+            layer_data.styles = extract_style_from(CSSBoxBackground);
+            delete layer_data.image;
+            delete layer_data.imageType;
+            
+          }
         } else {
           export_isolated_layer_v2(layer,images_folder + "/" + sanitize_filename([layer name]) + ".png")
         }
@@ -470,14 +533,18 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
     // }
     metadata_container.push(layer_data);
 
+    
     if ([layer name].slice(-1) == '&') {
       log("Restore visibility for " + [layer name])
       [layer setName:[layer name].slice(0, -1)];
-      [layer setIsVisible:false]
+      //[layer setIsVisible:false]
+      //log("Small hack: this forces a redraw")
       // Small hack: this forces a redraw
-      [layer resetPointsBasedOnUserInteraction]
+      //[layer resetPointsBasedOnUserInteraction]
+      log("Now visible")
     }
     log([layer isVisible])
+    
   }
 }
 
@@ -487,21 +554,43 @@ function create_files(page,metadata,states_metadata){
   log(JSON.stringify(metadata))
   var file_contents = "window.FramerPS = window.FramerPS || {};\n"
     +"window.FramerPS['" + document_name +"'] = " + JSON.stringify(metadata,null,2)+"\n"
+    save_file_from_string(file_path,file_contents);
+
     if([[page artboards] count] > 0){
-      file_contents += "window.FramerStates = window.FramerStates || {};\n"
+      file_path = framer_folder + "/states." + document_name + ".js";
+      file_contents = "window.FramerStates = window.FramerStates || {};\n"
+      +"window.FramerStates = " + JSON.stringify(states_metadata,null,2)+"\n";
+      save_file_from_string(file_path,file_contents);
+
+      /* I used to put all the state logic into the file directly
+      file_contents = "window.FramerStates = window.FramerStates || {};\n"
       +"window.FramerStates = " + JSON.stringify(states_metadata,null,2)+"\n"
+      +"Framer.config.animationCurve = 'linear';"
+      +"Framer.config.animationDelay = 0;"
+      +"Framer.config.animationTime = 300;"
+      +"var FramerCurves = (FramerCurves) ? FramerCurves : {linear  : 'spring(400,30,200)',easeIn  : 'ease-in',easeOut : 'ease-out',spring  : 'spring(400,30,200)'}; View.prototype.ani = function(props,time,delay,curve) { if(!curve) curve = Framer.config.animationCurve; console.log(time,delay,curve,props,(!time));if(!time) time = Framer.config.animationTime; var that = this; if(delay > 0){ var a = new Animation({view:this, time: time, curve: curve, properties: props });utils.delay(Framer.config.animationDelay,function(){a.start()})}else{var a = this.animate({ time: time, curve: curve, properties: props });}return a;};\n"
+
+      +"for(var i in FramerCurves) View.prototype[i] = function(props,time,delay) { return this.ani(props,time,delay,FramerCurves[i])};\n"
+
+      +"var setUpStateTransitions = function (){var stateTransitions = [];var makeStateShift = function (state,name){;return function(){for (var i in state){var time = state[i].time || Framer.config.animationTime;var delay = state[i].delay || Framer.config.animationDelay;var curve = state[i].curve || Framer.config.animationCurve;PSD[i].ani(state[i].frame,time,delay,curve)}}};for(var i in FramerStates){var f = makeStateShift(FramerStates[i],i);stateTransitions.push(f)};return stateTransitions;};\n"
+
+      +"var FramerStateShift = utils.cycle(setUpStateTransitions());FramerStateShift()();\n"
+      save_file_from_string(file_path,file_contents);
+      */
     }
     
 
-  save_file_from_string(file_path,file_contents);
+  
 
   log(framer_folder)
   try {
     // Save JS files from templates:
+    /*
     save_file_from_string(framer_folder + "/framerps.js", FramerPSJSContents);
     if(![file_manager fileExistsAtPath:(target_folder + "/" + FramerScriptFileName)]) {
       save_file_from_string(target_folder + "/" + FramerScriptFileName, FramerScriptFileContents);
     }
+    */
   } catch(e) {
     log(e)
   }
@@ -528,7 +617,7 @@ function create_files(page,metadata,states_metadata){
 
   // Create HTML and open in default browser if it's the first time we're exporting
   if(![file_manager fileExistsAtPath:(target_folder + "/index.html")]) {
-    save_file_from_string(target_folder + "/index.html",  FramerIndexFileContents.replace("{{ views }}",'<script src="framer/views.' + document_name + '.js"></script>'));
+    save_file_from_string(target_folder + "/index.html",  FramerIndexFileContents.replace("{{ views }}",'<script src="framer/views.' + document_name + '.js"></script>\n<script src="framer/states.' + document_name + '.js"></script>'));
     var open_task = [[NSTask alloc] init],
         open_task_args = [NSArray arrayWithObjects:(target_folder + "/index.html"), nil];
 
@@ -644,8 +733,35 @@ function export_artboard(layer){
   }
 }
 
+function lookForCSSBoxBackground(layer){
+  log('Looking for CSS Box in '+layer)
+  log('Looking for CSS Box in children '+layer.children().length())
+  var layerChildren = layer.children()
+
+  var CSSBoxBackground = false;
+
+  if(layerChildren.length() > 0){
+    log('Looking for CSS Box in layer that has children')
+    for (var layerIndex =0;layerIndex < layerChildren.length(); layerIndex++){
+      var child = layerChildren[layerIndex]
+      log('Looking for CSS Box child is '+ layerIndex + ' ' +child.class())
+      
+      if(child.class() == 'MSShapeGroup' && layerIndex < 2){
+        log('CSS Box found background shape  '+ child)
+        CSSBoxBackground = child
+      }
+
+      var layerObject = layerChildren[layerIndex]
+      var frameName = layerObject.name
+    }
+  }
+
+  return CSSBoxBackground;
+
+}
+
 function lookForStates(layer,metadata,isRoot){
-  log('Looking in: '+layer.length);
+  log('Looking in: '+layer+' with '+layer.children.length+' children');
   if(layer.children.length > 0){
     for (var j =0;j < layer.children.length; j++){
       var layerObject = layer.children[j]
@@ -698,6 +814,112 @@ function lookForStates(layer,metadata,isRoot){
   return metadata;
 }
 
+function findAssetsPage(focusPage, firstArtboard){
+  var assetsPage = false
+  var allPages = [doc pages];
+  for(var p=0; p < [allPages length]; p++){
+    var currentPage = allPages[p]
+    log('looking for asset page: '+currentPage+' name: '+currentPage.name()+' = '+(currentPage.name() == 'FramerComponents'))
+    if(currentPage.name() == 'FramerComponents'){
+      assetsPage = currentPage;
+    }
+  }
+  return assetsPage;
+}
+function updateAssetsPage(focusPage, firstArtboard){
+  var assetsPage = findAssetsPage(focusPage, firstArtboard)
+  if(assetsPage!=false){
+    log('removing asset page: '+assetsPage+' name: '+assetsPage.name())
+    doc.removePage(assetsPage)
+  }
+
+  assetsPage = [doc addBlankPage]
+  assetsPage.setName("FramerComponents")
+
+  var copyOfArtboard = [firstArtboard copy]
+  
+  log('looking at artboard copy ' + copyOfArtboard)
+
+  assetsPage.addLayer(copyOfArtboard)
+  var copyOfArtboardLayers = copyOfArtboard.layers()
+  //var firstArtboardLayers = firstArtboard.layers()
+  log('looking at layers '+copyOfArtboardLayers)
+
+  for(var l=0; l < [copyOfArtboardLayers length]; l++){
+    addLayerToAssetsPage(copyOfArtboardLayers[l],assetsPage)
+  }
+  log('added all layers to asset page')
+
+  [copyOfArtboard removeFromParent]
+
+  return assetsPage;
+  
+}
+function addLayerToAssetsPage(orginalLayer,assetsPage){
+    log('adding layer: '+ layer +' to page: '+ assetsPage)
+    var layer = orginalLayer //[ copy]
+    assetsPage.addLayer(layer)
+    //assetsPage.resizeRoot()
+    layer.style().contextSettings().opacity = 1
+    //[assetsPage resetPointsBasedOnUserInteraction] //force redraw
+    //var assetsLayers = assetsPage.layers()
+    
+    //assetsPage.layers().length()*1000;
+    //if(assetsLayers.length()>1){
+      //layer.parentGroup().resizeRoot()  
+      // log('getting offset: '+assetsLayers[0])
+      //var AssetsOffset = assetsLayers[assetsLayers-1].frame().height()
+    //}
+    
+    log('added layer: '+layer+' with children: '+orginalLayer.children())
+    layerFrame = layer.frame()
+    layerFrame.y = 0;
+    //log('moving layer: '+layer+' '+layerFrame.height() +' to '+assetsPage)
+    layerFrame.x = 0
+    layerFrame.y = AssetsOffset + 48
+
+    var label = assetsPage.addLayerOfType("text");
+    label.setName("label for "+layer.name());
+    //var label = [MSTextLayer]
+    log("created text "+label)
+    label.fontSize = 11;
+    label.fontPostscriptName = "Lucida Grande"
+    var fontColor = [[MSColor alloc] init];
+    [fontColor setRed:0.45];
+    [fontColor setGreen:0.45];
+    [fontColor setBlue:0.45];
+    [fontColor setAlpha:1];
+
+    label.textColor = fontColor
+
+    log("changed font text "+label)
+    label.setStringValue(layer.name())
+    log("set value of text "+label)
+    labelFrame = label.frame()
+    labelFrame.y = AssetsOffset + 30
+    log("set frame of text "+label)
+    //assetsPage.addLayer(label)
+    
+    //AssetsOffset += layerFrame.height() + 56
+    AssetsOffset += layerFrame.height() + 56
+    /*
+    if (!should_flatten_layer(layer) && is_group(layer)) {
+      var sublayers = [layer layers];
+      // Apparently, Sketch returns child layers in reverse order (back to front),
+      // so we'll loop backwards through them:
+      for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+        var current = sublayers[sub];
+        if(should_become_view(current)){
+          var currentDup = [current duplicate]
+          addLayerToAssetsPage(current,assetsPage)
+          //[currentDup removeFromParent]
+        }
+      }
+    }
+    */
+    
+}
+
 
 var document_path = [[doc fileURL] path].split([doc displayName])[0],
     document_name = [doc displayName].replace(".sketch",""),
@@ -707,49 +929,46 @@ var document_path = [[doc fileURL] path].split([doc displayName])[0],
     file_manager = [NSFileManager defaultManager],
     invisible_layers = [],
     project_metadata = [],
-    states_metadata = {}
+    states_metadata = {},
+    AssetsOffset = 0;
 
 function main() {
 
   log('########################################################################');
+  
+  var focusPage = [doc currentPage]
+  var currentArtboards = [focusPage artboards]
+  var firstArtboard = [currentArtboards firstObject]
+  var allPages = [doc pages];
 
   make_folders()
-  if([[[doc currentPage] artboards] count] > 0){
-    process_all_artboards([doc currentPage]);
+
+  if([currentArtboards count] > 0){
+
+    var assetsPage = updateAssetsPage(focusPage, firstArtboard);
+    process_all_artboards(focusPage);
     log('Auto assets: Made states, search for Assets');
-    var allPages = [doc pages];
-    var assetsPage = [doc currentPage];
-    for(var p=0; p < [allPages length]; p++){
-      log('Auto assets: Looking at page '+p+' '+allPages[p])
-      if(allPages[p].artboards().count() <= 0){
-        log('Auto assets: Page has no artboards and will be used for assets '+p+' '+allPages[p])
-        assetsPage=allPages[p];
-      }
-    }
+    
     process_all_layers(assetsPage);
-    create_files([doc currentPage], project_metadata, states_metadata)
-    [[doc currentPage] deselectAllLayers]
+    create_files(focusPage, project_metadata, states_metadata)
+    log('trying to deselect Layers')
 
+    //[focusPage deselectAllLayers]
+      
+    log('trying to refocus on: '+focusPage)
+
+    //[focusPage select:true byExpandingSelection:false]
+    //[firstArtboard select:true byExpandingSelection:false]
+    [doc setCurrentPage:focusPage]
+
+    // Display message in toolbar
+    [doc showMessage: "Sketch Framer: Project exported to “" + target_folder + "”"];
+    
   }else{
-    process_all_layers([doc currentPage]);
-    log('Auto states: Made assets, search for States');
-    var allPages = [doc pages];
-    var statesPage = [doc currentPage];
-    for(var p=0; p < [allPages length]; p++){
-      log('Auto states: Looking at page '+p+' '+allPages[p])
-      if(allPages[p].artboards().count() > 0){
-        log('Auto states: Page has artboards and will be used for states '+p+' '+allPages[p])
-        statesPage = allPages[p]
-      }
-    }
-    process_all_artboards(statesPage);
-    create_files(statesPage, project_metadata, states_metadata)
-    [statesPage deselectAllLayers]
+    //var assetsPage = findStatesPage(focusPage, firstArtboard);
+    // Display message in toolbar
+    [doc showMessage: "Sketch Framer: You must have multiple artboards for this to work"];
   }
-
-  
-  // Display message in toolbar
-  [doc showMessage: "Sketch Framer: Project exported to “" + target_folder + "”"];
 
 }
 
