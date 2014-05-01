@@ -344,6 +344,7 @@ function extract_metadata_from(layer) {
     layerFrame: layerFrame
     // id: [layer objectID]
   }
+
   if (maskFrame) {
     metadata.maskFrame = maskFrame
   }
@@ -504,6 +505,17 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
         process_layer(page,current,layer_data.children,depth+1,skipExport);
       }
     }
+
+    // Capture hierarchy in export
+    if(layer.parentGroup){
+      var parentGroup = layer.parentGroup()
+      if(![parentGroup isMemberOfClass:[MSArtboardGroup class]]){
+        log('Setting layer hierarchy name '+parentGroup.name().toString());
+        layer_data.parentGroup = parentGroup.name().toString()
+      }
+    }
+
+
     if(!skipExport){
       if ([layer className] == "MSArtboardGroup") {
         export_artboard(layer)
@@ -803,6 +815,8 @@ function lookForStates(layer,metadata,isRoot){
         child.frame.y -= layer.layerFrame.y;
       }
 
+      child.parentGroup = layerObject.parentGroup
+
       metadata[frameName] =child;
 
       if(layer.children[j].children.length>0){
@@ -855,68 +869,74 @@ function updateAssetsPage(focusPage, firstArtboard){
   return assetsPage;
   
 }
-function addLayerToAssetsPage(orginalLayer,assetsPage){
-    log('adding layer: '+ layer +' to page: '+ assetsPage)
-    var layer = orginalLayer //[ copy]
-    assetsPage.addLayer(layer)
-    //assetsPage.resizeRoot()
-    layer.style().contextSettings().opacity = 1
-    //[assetsPage resetPointsBasedOnUserInteraction] //force redraw
-    //var assetsLayers = assetsPage.layers()
-    
-    //assetsPage.layers().length()*1000;
-    //if(assetsLayers.length()>1){
-      //layer.parentGroup().resizeRoot()  
-      // log('getting offset: '+assetsLayers[0])
-      //var AssetsOffset = assetsLayers[assetsLayers-1].frame().height()
-    //}
-    
-    log('added layer: '+layer+' with children: '+orginalLayer.children())
-    layerFrame = layer.frame()
-    layerFrame.y = 0;
-    //log('moving layer: '+layer+' '+layerFrame.height() +' to '+assetsPage)
-    layerFrame.x = 0
-    layerFrame.y = AssetsOffset + 48
+function addLayerToAssetsPage(layer,assetsPage){
 
-    var label = assetsPage.addLayerOfType("text");
-    label.setName("label for "+layer.name());
-    //var label = [MSTextLayer]
-    log("created text "+label)
-    label.fontSize = 11;
-    label.fontPostscriptName = "Lucida Grande"
-    var fontColor = [[MSColor alloc] init];
-    [fontColor setRed:0.45];
-    [fontColor setGreen:0.45];
-    [fontColor setBlue:0.45];
-    [fontColor setAlpha:1];
+    log('adding layer is group: '+ is_group(layer) +' is view: '+ should_become_view(layer)+' layer:'+layer)
+    if (is_group(layer) && should_become_view(layer)) {
+      //var layer = layer //[ copy]
+      //layer.removeFromParent()
+      assetsPage.addLayer(layer)
 
-    label.textColor = fontColor
+      //assetsPage.resizeRoot()
+      layer.style().contextSettings().opacity = 1
+      //[assetsPage resetPointsBasedOnUserInteraction] //force redraw
+      //var assetsLayers = assetsPage.layers()
+      
+      //assetsPage.layers().length()*1000;
+      //if(assetsLayers.length()>1){
+        //layer.parentGroup().resizeRoot()  
+        // log('getting offset: '+assetsLayers[0])
+        //var AssetsOffset = assetsLayers[assetsLayers-1].frame().height()
+      //}
+      
+      log('added layer: '+layer+' with children: '+layer.children())
+      layerFrame = layer.frame()
+      layerFrame.y = 0;
+      //log('moving layer: '+layer+' '+layerFrame.height() +' to '+assetsPage)
+      layerFrame.x = 0
+      layerFrame.y = AssetsOffset + 48
 
-    log("changed font text "+label)
-    label.setStringValue(layer.name())
-    log("set value of text "+label)
-    labelFrame = label.frame()
-    labelFrame.y = AssetsOffset + 30
-    log("set frame of text "+label)
-    //assetsPage.addLayer(label)
+      var label = assetsPage.addLayerOfType("text");
+      var layerName = (layer.name()) ? layer.name() : 'Undefined layer';
+      label.setName("label for "+layerName);
+      //var label = [MSTextLayer]
+      log("created text "+label)
+      label.fontSize = 11;
+      label.fontPostscriptName = "Lucida Grande"
+      var fontColor = [[MSColor alloc] init];
+      [fontColor setRed:0.45];
+      [fontColor setGreen:0.45];
+      [fontColor setBlue:0.45];
+      [fontColor setAlpha:1];
+
+      label.textColor = fontColor
+
+      log("changed font text "+label)
+      label.setStringValue(layerName)
+      log("set value of text "+label)
+      labelFrame = label.frame()
+      labelFrame.y = AssetsOffset + 30
+      log("set frame of text "+label)
+      //assetsPage.addLayer(label)
+      
+      //AssetsOffset += layerFrame.height() + 56
+      AssetsOffset += layerFrame.height() + 56
+      
     
-    //AssetsOffset += layerFrame.height() + 56
-    AssetsOffset += layerFrame.height() + 56
-    /*
-    if (!should_flatten_layer(layer) && is_group(layer)) {
-      var sublayers = [layer layers];
+      var sublayers = layer.layers();
       // Apparently, Sketch returns child layers in reverse order (back to front),
       // so we'll loop backwards through them:
       for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
         var current = sublayers[sub];
-        if(should_become_view(current)){
-          var currentDup = [current duplicate]
+        if(is_group(current) && should_become_view(current)){
+          //var currentDup = [current duplicate]
+          current.removeFromParent()
           addLayerToAssetsPage(current,assetsPage)
-          //[currentDup removeFromParent]
+          //currentDup.removeFromParent()
         }
-      }
+      } 
     }
-    */
+    
     
 }
 
