@@ -337,7 +337,19 @@ function extract_metadata_from(layer) {
   var layerStyle = layer.style();
   layerFrame.opacity = layerStyle.contextSettings().opacity();
   layerFrame.rotationZ = layer.rotation();
-  log('Style settings: opacity '+layerStyle.contextSettings().opacity() );
+
+  var styles = extract_style_from(layer)
+  for(var attr in styles){
+    layerFrame[attr] = styles[attr]
+  }
+
+  var shadow = extract_shadow_from(layer)
+
+  if(shadow){
+    layerFrame.boxShadow = shadow;
+    log('putting shadow into styles attr'+shadow)
+  }
+  
 
   var metadata = {
     name: sanitize_filename([layer name]),
@@ -366,8 +378,32 @@ function extract_metadata_from(layer) {
 
   return metadata;
 }
+function extract_shadow_from(layer) {
+  //TODO: Get the blur properties
+  var styles = {}
+  var styleObjects = layer.style().shadows().array()
+  log('Checking shadow'+styles)
+
+  var CSSShadow=false;
+  
+  for(var i=0;i<styleObjects.length();i++){
+    log('Found shadow'+styleObjects[i])
+    var shadowObject =styleObjects[i]
+    var shadowColor='rgba('
+      +Math.round(shadowObject.color().red()*255)+','
+      +Math.round(shadowObject.color().green()*255)+','
+      +Math.round(shadowObject.color().blue()*255)+','
+      +shadowObject.color().alpha()+')'
+    CSSShadow = shadowObject.offsetX()+'px '+shadowObject.offsetY()+'px '+shadowObject.blurRadius()+'px '+shadowObject.spread()+'px '+shadowColor;
+    
+    //layer.style().shadows().removeStylePart(shadowObject)
+  }
+  return CSSShadow;
+
+}
 
 function extract_style_from(shapeLayer) {
+  /*
   var styles = {}
   var borders = shapeLayer.style().borders().array()
 
@@ -411,8 +447,29 @@ function extract_style_from(shapeLayer) {
     log('CSS Box fill gradient:  '+ fill.gradient())
     log('CSS Box fill isEnabled:  '+ fill.isEnabled())
   }
+  */
+
+  var CSSString = shapeLayer.CSSAttributeString().toString();
+  var styles ={}
+
+  var stylestemp = CSSString.split('\n');
+  
+  for (var i = 0; i < stylestemp.length ; i++) {
+
+    var values = stylestemp[i].split(':');
+    
+    if(values.length>1 && stylestemp[i].indexOf('//')==-1 && stylestemp[i].indexOf('/*')==-1){
+      var attr = values[0].replace( /-(\w)/g, function _replace( $1, $2 ) {return $2.toUpperCase();});
+      var val = values[1].replace(';','')
+      log('style values'+attr+':'+values[1].replace(';',''));
+      styles[attr] = val;
+    }
+    
+  } 
+  
+
   //return styles; 
-  return shapeLayer.CSSAttributeString().toString()
+  return styles
   //+'\n-webkit-transform: rotateZ('+shapeLayer.rotation()+'deg);'
 
 }
@@ -529,9 +586,22 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
             export_isolated_layer_v3(page, layer,images_folder + "/" + sanitize_filename([layer name]) + ".png")
           }else{
             layer_data.styles = extract_style_from(CSSBoxBackground);
+
+            var shadow = extract_shadow_from(layer)
+            if(shadow){
+              layer_data.styles['boxShadow'] = shadow;
+              log('putting shadow into layerFrame'+shadow)
+            }
+            
+            var shadowObjects = layer.style().shadows().array()
+  
+            for(var i=0;i<shadowObjects.length();i++){
+              var shadowObject =shadowObjects[i]
+              layer.style().shadows().removeStylePart(shadowObject)
+            }
+
             delete layer_data.image;
             delete layer_data.imageType;
-            
           }
         } else {
           export_isolated_layer_v2(layer,images_folder + "/" + sanitize_filename([layer name]) + ".png")
@@ -807,6 +877,7 @@ function lookForStates(layer,metadata,isRoot){
         frameName = frameName.replace(/_?ease-out?/,"")
       }
       
+      //child.styles = layer.children[j].layerFrame;
 
       child.frame = layer.children[j].layerFrame;
       
@@ -875,6 +946,8 @@ function addLayerToAssetsPage(layer,assetsPage){
     if (is_group(layer) && should_become_view(layer)) {
       //var layer = layer //[ copy]
       //layer.removeFromParent()
+      var styles = {}
+
       assetsPage.addLayer(layer)
 
       //assetsPage.resizeRoot()
