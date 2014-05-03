@@ -49,7 +49,7 @@ var AppSandboxFileAccessPersist = {
 
     // loop through the bookmarks one path at a time down the URL
     var subUrl = url;
-    while ([subUrl path].length() > 1) { // give up when only '/' is left in the path
+    while ([subUrl path].length > 1) { // give up when only '/' is left in the path
       var key = AppSandboxFileAccessPersist.keyForBookmarkDataForURL(subUrl);
       var bookmark = [defaults dataForKey:key];
       if (bookmark) { // if a bookmark is found, return it
@@ -89,7 +89,7 @@ var AppSandboxFileAccess = {
     // check that the url exists, if it doesn't, find the parent path of the url that does exist and ask permission for that
     var fileManager = [NSFileManager defaultManager];
     var path = [url path];
-    while (path.length() > 1) { // give up when only '/' is left in the path or if we get to a path that exists
+    while (path.length > 1) { // give up when only '/' is left in the path or if we get to a path that exists
       if ([fileManager fileExistsAtPath:path]) {
         break;
       }
@@ -204,6 +204,9 @@ function should_become_view(layer) {
 function is_group(layer) {
   return [layer isMemberOfClass:[MSLayerGroup class]] || [layer isMemberOfClass:[MSArtboardGroup class]]
 }
+function is_bitmap(layer) {
+  return [layer isMemberOfClass:[MSBitmapLayer class]]
+}
 function should_ignore_layer(layer) {
   return [layer name].slice(-1) == '-' || [layer className] == "MSPage";
 }
@@ -216,7 +219,7 @@ function has_art(layer) {
     var has_art = false;
 
     var sublayers = [layer layers];
-    for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+    for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
       var sublayer = sublayers[sub];
       if(!should_ignore_layer(sublayer) && !should_become_view(sublayer)) {
         has_art = true;
@@ -260,10 +263,21 @@ function save_file_from_string(filename,the_string) {
 
 function mask_bounds(layer) {
   var sublayers = [layer layers];
-  for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+
+  for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
     var current = sublayers[sub];
-    if([current name].toLowerCase().indexOf('maskframe') != -1) {
-      return metadata_for(current);
+    if(current.hasClippingMask()) {
+      var maskParentFrame = layer.frame();
+      var metadataForMask = metadata_for(current);
+
+      [current setHasClippingMask:false]
+      layer.resizeRoot()
+
+      metadataForMask.x = metadataForMask.x - maskParentFrame.x()
+      metadataForMask.y = metadataForMask.y - maskParentFrame.y()
+      [current setHasClippingMask:true]
+      log('Found mask: '+current)
+      return metadataForMask;
     }
   }
 
@@ -386,7 +400,7 @@ function extract_shadow_from(layer) {
 
   var CSSShadow=false;
   
-  for(var i=0;i<styleObjects.length();i++){
+  for(var i=0;i<styleObjects.length;i++){
     log('Found shadow'+styleObjects[i])
     var shadowObject =styleObjects[i]
     var shadowColor='rgba('
@@ -408,7 +422,7 @@ function extract_style_from(shapeLayer) {
   var borders = shapeLayer.style().borders().array()
 
   log('CSS Box:  '+ shapeLayer.CSSAttributeString().toString()+' ')
-  for(var borderIndex = 0; borderIndex < borders.length(); borderIndex++){
+  for(var borderIndex = 0; borderIndex < borders.length; borderIndex++){
     var border = borders[borderIndex]
     log('CSS Box border is  '+ border)
     styles.borderSize = border.thickness();
@@ -430,8 +444,8 @@ function extract_style_from(shapeLayer) {
   }
 
   var fills = shapeLayer.style().fills().array()
-  log('CSS Box has fills  '+ fills.length())
-  for(var fillIndex = 0; fillIndex < fills.length(); fillIndex++){
+  log('CSS Box has fills  '+ fills.length)
+  for(var fillIndex = 0; fillIndex < fills.length; fillIndex++){
     var fill = fills[fillIndex]
     styles.backgroundColor = 'rgba('
       +Math.round(fill.color().red()*255)+','
@@ -494,13 +508,13 @@ function make_folders(){
 function process_all_layers(page){
   var all_layers = [page layers]
 
-  for (var i=0; i < [all_layers length]; i++) {
+  for (var i=0; i < [all_layers count]; i++) {
     process_layer(page, all_layers[i],project_metadata, 0);
   }
 }
 function process_all_artboards(page){
   var all_artboards = [page artboards];
-  var artboardCount = [all_artboards length]
+  var artboardCount = [all_artboards count]
   log('Multistate: Exporting boards'+all_artboards+' '+artboardCount)
   
   for (var artboardId = artboardCount-1; artboardId >= 0; artboardId-- ){
@@ -518,7 +532,7 @@ function process_all_artboards(page){
 
     /* Don't use this to export image at all anymore
     log('Multistate: Exporting layers '+artboardId+' '+thisArtboard)
-    for (var i=0; i < [all_layers length]; i++) {
+    for (var i=0; i < [all_layers count]; i++) {
       if(artboardId === artboardCount-1){
         log('Multistate: Main Artboard '+artboardId+' '+thisArtboard)
         process_layer(page, all_layers[i],project_metadata, 0, true);
@@ -539,6 +553,7 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
     return;
   }
 
+
   if(should_become_view(layer)){
     log_depth("Processing <" + [layer name] + "> of type <" + [layer className] + ">", depth)
 
@@ -557,7 +572,7 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
       var sublayers = [layer layers];
       // Apparently, Sketch returns child layers in reverse order (back to front),
       // so we'll loop backwards through them:
-      for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+      for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
         var current = sublayers[sub];
         process_layer(page,current,layer_data.children,depth+1,skipExport);
       }
@@ -566,7 +581,7 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
     // Capture hierarchy in export
     if(layer.parentGroup){
       var parentGroup = layer.parentGroup()
-      if(![parentGroup isMemberOfClass:[MSArtboardGroup class]]){
+      if(![parentGroup isMemberOfClass:[MSArtboardGroup class]] || ![parentGroup isMemberOfClass:[MSPage class]]){
         log('Setting layer hierarchy name '+parentGroup.name().toString());
         layer_data.parentGroup = parentGroup.name().toString()
       }
@@ -592,10 +607,10 @@ function process_layer(page, layer,metadata_container,depth,skipExport) {
               layer_data.styles['boxShadow'] = shadow;
               log('putting shadow into layerFrame'+shadow)
             }
-            
+
             var shadowObjects = layer.style().shadows().array()
   
-            for(var i=0;i<shadowObjects.length();i++){
+            for(var i=0;i<shadowObjects.length;i++){
               var shadowObject =shadowObjects[i]
               layer.style().shadows().removeStylePart(shadowObject)
             }
@@ -724,6 +739,19 @@ function export_isolated_layer_v3(page,layer,filename){
       did_disable_background = true
     }
   }
+  var sublayers = [layer layers]
+  var hasMask = false
+  var maskLayer = false
+  for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
+    log('looking for mask in export '+hasMask)
+    if(sublayers[sub].hasClippingMask()){
+      log('found mask in export'+hasMask)
+      sublayers[sub].hasClippingMask = false
+      maskLayer = sublayers[sub]
+      hasMask = true
+    }
+  }
+  
 
   var filename = [@"" stringByAppendingString:filename]
   var slice = [[MSSliceMaker slicesFromExportableLayer:layer] firstObject]
@@ -731,14 +759,28 @@ function export_isolated_layer_v3(page,layer,filename){
   var imageData = [MSSliceExporter dataForSlice:slice format:@"png"]
   if (in_sandbox()) {
     sandboxAccess.accessFilePath_withBlock_persistPermission([filename stringByDeletingLastPathComponent], function(){
-      [imageData writeToFile:filename atomically:YES]
+      if(is_bitmap(layer)){
+        [imageData writeBitmapImageToFile:filename atomically:YES]
+      }else{
+        [imageData writeToFile:filename atomically:YES]  
+      }
+      
     }, true)
   } else {
-    [imageData writeToFile:filename atomically:YES]
+    if(is_bitmap(layer)){
+      [imageData writeBitmapImageToFile:filename atomically:YES]
+    }else{
+      [imageData writeToFile:filename atomically:YES]  
+    }
   }
 
   if (did_disable_background) {
     [art setIncludeBackgroundColorInExport:true]
+  }
+
+  if(hasMask){
+    //layer.hasClippingMask = true
+    maskLayer.hasClippingMask = true
   }
 }
 function export_isolated_layer_v2(layer,filename){
@@ -771,7 +813,7 @@ function export_artboard(layer){
   if(is_group(layer) && !should_flatten_layer(layer)) {
     var sublayers = [layer layers]
 
-    for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+    for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
       var sublayer = sublayers[sub];
       if(should_become_view(sublayer) || should_ignore_layer(sublayer)) {
         log("     REMOVING " + [sublayer name])
@@ -817,18 +859,19 @@ function export_artboard(layer){
 
 function lookForCSSBoxBackground(layer){
   log('Looking for CSS Box in '+layer)
-  log('Looking for CSS Box in children '+layer.children().length())
+  log('Looking for CSS Box in children '+layer.children().length)
   var layerChildren = layer.children()
 
   var CSSBoxBackground = false;
 
-  if(layerChildren.length() > 0){
+
+  if(layerChildren.length > 0){
     log('Looking for CSS Box in layer that has children')
-    for (var layerIndex =0;layerIndex < layerChildren.length(); layerIndex++){
+    for (var layerIndex =0;layerIndex < layerChildren.length; layerIndex++){
       var child = layerChildren[layerIndex]
       log('Looking for CSS Box child is '+ layerIndex + ' ' +child.class())
       
-      if(child.class() == 'MSShapeGroup' && layerIndex < 2){
+      if(child.class() == 'MSShapeGroup' && layerIndex < 2 && !child.hasClippingMask()){
         log('CSS Box found background shape  '+ child)
         CSSBoxBackground = child
       }
@@ -886,6 +929,20 @@ function lookForStates(layer,metadata,isRoot){
         child.frame.y -= layer.layerFrame.y;
       }
 
+      if(child.maskFrame){
+        /*
+        [current setHasClippingMask:false]
+        var maskParent = current.parentGroup();
+        var maskParentFrame = maskParent.frame();
+        maskParent.resizeRoot()
+        maskParentFrame.x = 0
+        AssetsOffset += maskParentFrame.height() - layerFrame.height()
+        [current setHasClippingMask:true]
+        child.maskFrame.x -= layer.layerFrame.x
+        child.maskFrame.y -= layer.layerFrame.y
+        */
+      }
+
       child.parentGroup = layerObject.parentGroup
 
       metadata[frameName] =child;
@@ -902,7 +959,7 @@ function lookForStates(layer,metadata,isRoot){
 function findAssetsPage(focusPage, firstArtboard){
   var assetsPage = false
   var allPages = [doc pages];
-  for(var p=0; p < [allPages length]; p++){
+  for(var p=0; p < [allPages count]; p++){
     var currentPage = allPages[p]
     log('looking for asset page: '+currentPage+' name: '+currentPage.name()+' = '+(currentPage.name() == 'FramerComponents'))
     if(currentPage.name() == 'FramerComponents'){
@@ -930,7 +987,7 @@ function updateAssetsPage(focusPage, firstArtboard){
   //var firstArtboardLayers = firstArtboard.layers()
   log('looking at layers '+copyOfArtboardLayers)
 
-  for(var l=0; l < [copyOfArtboardLayers length]; l++){
+  for(var l=0; l < [copyOfArtboardLayers count]; l++){
     addLayerToAssetsPage(copyOfArtboardLayers[l],assetsPage)
   }
   log('added all layers to asset page')
@@ -955,14 +1012,15 @@ function addLayerToAssetsPage(layer,assetsPage){
       //[assetsPage resetPointsBasedOnUserInteraction] //force redraw
       //var assetsLayers = assetsPage.layers()
       
-      //assetsPage.layers().length()*1000;
-      //if(assetsLayers.length()>1){
+      //assetsPage.layers().length*1000;
+      //if(assetsLayers.length>1){
         //layer.parentGroup().resizeRoot()  
         // log('getting offset: '+assetsLayers[0])
         //var AssetsOffset = assetsLayers[assetsLayers-1].frame().height()
       //}
       
       log('added layer: '+layer+' with children: '+layer.children())
+
       layerFrame = layer.frame()
       layerFrame.y = 0;
       //log('moving layer: '+layer+' '+layerFrame.height() +' to '+assetsPage)
@@ -999,13 +1057,23 @@ function addLayerToAssetsPage(layer,assetsPage){
       var sublayers = layer.layers();
       // Apparently, Sketch returns child layers in reverse order (back to front),
       // so we'll loop backwards through them:
-      for (var sub=([sublayers length] - 1); sub >= 0; sub--) {
+      for (var sub=([sublayers count] - 1); sub >= 0; sub--) {
         var current = sublayers[sub];
         if(is_group(current) && should_become_view(current)){
           //var currentDup = [current duplicate]
           current.removeFromParent()
           addLayerToAssetsPage(current,assetsPage)
           //currentDup.removeFromParent()
+        }
+        if(current.hasClippingMask()) {
+          log('Moved masked layer to assets: '+current)
+          [current setHasClippingMask:false]
+          var maskParent = current.parentGroup();
+          var maskParentFrame = maskParent.frame();
+          maskParent.resizeRoot()
+          maskParentFrame.x = 0
+          AssetsOffset += maskParentFrame.height() - layerFrame.height()
+          [current setHasClippingMask:true]
         }
       } 
     }
